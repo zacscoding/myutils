@@ -1,0 +1,16 @@
+[
+  {
+    "name": "host01",
+    "user": "app",
+    "address": "192.168.1.10",
+    "port": 22,
+    "password": "apppw"
+  },
+  {
+    "name": "host02",
+    "user": "ubuntu",
+    "address": "192.168.1.11",
+    "port": 22,
+    "password": "ubuntupw"
+  }
+]
