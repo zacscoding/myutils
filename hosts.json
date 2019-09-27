@@ -1,16 +1,18 @@
 [
   {
-    "name": "host01",
+    "name": "local-vm1",
     "user": "app",
-    "address": "192.168.1.10",
+    "address": "192.168.79.130",
     "port": 22,
-    "password": "apppw"
+    "password": "apppw",
+    "description": "local server 1"
   },
   {
-    "name": "host02",
-    "user": "ubuntu",
-    "address": "192.168.1.11",
+    "name": "local-vm11",
+    "user": "app",
+    "address": "192.168.79.130",
     "port": 22,
-    "password": "ubuntupw"
+    "keypath": "/home/zaccoding/keys/local-vm.pem",
+    "description": "local server 11"
   }
 ]

@@ -4,6 +4,7 @@ package utils
 import (
 	"github.com/urfave/cli"
 	"os"
+	"path/filepath"
 )
 
 var (
@@ -47,12 +48,13 @@ func NewApp() *cli.App {
 	return app
 }
 
-// GetDatastorePath returns a datastore directory.
-func GetDatastorePath() (string, error) {
-	dir, err := os.Getwd()
+// GetDatabasePath returns a db directory.
+func GetDatabasePath() (string, error) {
+	//dir, err := os.Getwd()
+	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
 		return "", err
 	}
-	//fmt.Println("#### database open.. ", (dir + "/myutilsdb"))
+	//fmt.Println("## database open.. ", (dir + "/myutilsdb"))
 	return dir + "/myutilsdb", nil
 }

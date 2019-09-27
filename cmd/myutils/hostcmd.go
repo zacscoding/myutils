@@ -3,14 +3,15 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/urfave/cli"
-	"github.com/zacscoding/myutils/datastore"
+	"github.com/zacscoding/myutils/host"
 	"github.com/zacscoding/myutils/types"
 	"github.com/zacscoding/myutils/utils"
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
+	"sort"
 )
 
 var (
@@ -24,15 +25,23 @@ var (
 	}
 
 	hostCommand = cli.Command{
-		Action:   showSubCommand,
+		Action:   ShowSubCommand,
 		Name:     "host",
 		Usage:    "manage hosts such as add | get | gets | update | delete",
 		Category: "HOST COMMANDS",
 		Subcommands: []cli.Command{
 			{
 				Name:   "import",
-				Usage:  "Import hosts",
+				Usage:  "Import hosts json file to local store",
 				Action: importHosts,
+				Flags: []cli.Flag{
+					utils.PathFlag,
+				},
+			},
+			{
+				Name:   "export",
+				Usage:  "Export to hosts json file from local store",
+				Action: exportHosts,
 				Flags: []cli.Flag{
 					utils.PathFlag,
 				},
@@ -71,15 +80,56 @@ var (
 	}
 )
 
-// display subcommands
-func showSubCommand(ctx *cli.Context) error {
-	return cli.ShowSubcommandHelp(ctx)
+// exportHosts export hosts data in local store to json file.
+func exportHosts(ctx *cli.Context) error {
+	path := ctx.String(utils.PathFlag.Name)
+	if path == "" {
+		return errors.New(`path must not be ""`)
+	}
+
+	// 1) exist file
+	// 	1-1) directory
+	//		=> use default filename
+	// 	1-2) file
+	//		=> return error
+	// 2) not exist file
+	// 2-1) create a new file
+	fi, err := os.Stat(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	} else {
+		if !fi.IsDir() {
+			return errors.New("already exist file :" + path)
+		}
+		log.Println("use default filename : hosts.json")
+		path = filepath.Join(path, "hosts.json")
+	}
+
+	hosts, err := host.GetHosts(app.db)
+	if err != nil {
+		return err
+	}
+	sort.Slice(hosts, func(i, j int) bool {
+		return hosts[i].Name < hosts[j].Name
+	})
+
+	b, err := json.MarshalIndent(hosts, "", "  ")
+	if err != nil {
+		return err
+	}
+	err = ioutil.WriteFile(path, b, 0644)
+	if err != nil {
+		return err
+	}
+	log.Println("success to export hosts. destination :", path)
+	return nil
 }
 
+// importHosts import hosts data from json.
 func importHosts(ctx *cli.Context) error {
 	path := ctx.String(utils.PathFlag.Name)
 	if path == "" {
-		return errors.New("invalid config path")
+		return errors.New(`path must not be ""`)
 	}
 	jsonFile, err := os.Open(path)
 	if err != nil {
@@ -97,29 +147,12 @@ func importHosts(ctx *cli.Context) error {
 		return err
 	}
 
-	db, err := getDatastore()
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
 	var failures []string
-	for _, host := range hosts {
-		if !host.HasCredentials() {
-			failures = append(failures, host.Name)
-			continue
-		}
+	for _, h := range hosts {
+		err = host.AddHost(app.db, h)
 
-		key := getHostKey(host.Name)
-		encoded, err := json.Marshal(host)
 		if err != nil {
-			failures = append(failures, host.Name)
-			continue
-		}
-
-		err = db.Put(key, encoded)
-		if err != nil {
-			failures = append(failures, host.Name)
+			failures = append(failures, h.Name)
 			continue
 		}
 	}
@@ -128,108 +161,36 @@ func importHosts(ctx *cli.Context) error {
 	return nil
 }
 
-// AddHost save a given host to local datastore
-func AddHost(host *types.Host) error {
-	if !host.HasCredentials() {
-		return errors.New("must have at least password or key path")
-	}
-
-	db, err := getDatastore()
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	key := getHostKey(host.Name)
-	encoded, err := json.Marshal(host)
-	if err != nil {
-		return err
-	}
-
-	err = db.Put(key, encoded)
-	if err != nil {
-		return err
-	}
-	log.Println("Success to save a host : ", string(encoded))
-	return nil
-}
-
-// addHost save a host to local datastore
+// addHost save a host to local db
 func addHost(ctx *cli.Context) error {
-	host, err := parseHost(ctx)
+	h, err := parseHost(ctx)
 	if err != nil {
 		return err
 	}
-	return AddHost(host)
-}
-
-// GetHost returns a host given hostname
-func GetHost(hostname string) (*types.Host, error) {
-	db, err := getDatastore()
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	val, err := db.Get(getHostKey(hostname))
-	if err != nil {
-		return nil, err
-	}
-
-	var h *types.Host
-	err = json.Unmarshal(val, &h)
-	if err != nil {
-		return nil, err
-	}
-	return h, nil
+	return host.AddHost(app.db, h)
 }
 
 // showHost display a host given query.
 func showHost(ctx *cli.Context) error {
-	host, err := parseHost(ctx)
+	h, err := parseHost(ctx)
 	if err != nil {
 		return err
 	}
-	if host.Name == "" {
+	if h.Name == "" {
 		return errors.New("hostname must be not empty")
 	}
 
-	host, err = GetHost(host.Name)
+	h, err = host.GetHost(app.db, h.Name)
 	if err != nil {
 		return nil
 	}
-
-	displayHost(host)
+	displayHost(h)
 	return nil
-}
-
-// GetHosts returns list of hosts.
-func GetHosts() ([]*types.Host, error) {
-	db, err := getDatastore()
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	itr := db.NewIteratorWithPrefix([]byte(types.HostPrefix))
-	var hosts []*types.Host
-
-	for itr.Next() {
-		var h *types.Host
-		err = json.Unmarshal(itr.Value(), &h)
-		if err != nil {
-			fmt.Println("Failed to unmarshal host.", err)
-			continue
-		}
-
-		hosts = append(hosts, h)
-	}
-	return hosts, nil
 }
 
 // showHosts display all hosts from local store.
 func showHosts(ctx *cli.Context) error {
-	hosts, err := GetHosts()
+	hosts, err := host.GetHosts(app.db)
 	if err != nil {
 		return nil
 	}
@@ -237,99 +198,45 @@ func showHosts(ctx *cli.Context) error {
 	return nil
 }
 
-// UpdateHost update a given host into local stored.
-func UpdateHost(host *types.Host) error {
-	if host.Name == "" {
-		return errors.New("invalid host name")
-	}
-	if !host.HasCredentials() {
-		return errors.New("must have at least password or key path")
-	}
-
-	db, err := getDatastore()
-	if err != nil {
-		return nil
-	}
-	defer db.Close()
-
-	has, err := db.Has(getHostKey(host.Name))
-	if err != nil {
-		return err
-	}
-	if !has {
-		return errors.New("Not exist host with name " + host.Name)
-	}
-
-	err = AddHost(host)
-	if err != nil {
-		return err
-	}
-	log.Println("Success to update")
-	return nil
-}
-
-// UpdateHost update a host parsed from cli into local stored.
+// updateHost update a host parsed from cli into local stored.
 func updateHost(ctx *cli.Context) error {
-	host, err := parseHost(ctx)
+	h, err := parseHost(ctx)
 	if err != nil {
 		return err
 	}
-	return UpdateHost(host)
-}
-
-// DeleteHost delete a host with given name.
-func DeleteHost(hostname string) error {
-	db, err := getDatastore()
-	if err != nil {
-		return nil
-	}
-	defer db.Close()
-
-	err = db.Delete(getHostKey(hostname))
-	if err != nil {
-		return err
-	}
-	return nil
+	return host.UpdateHost(app.db, h)
 }
 
 // deleteHost delete a host parsed from cli.
 func deleteHost(ctx *cli.Context) error {
-	host, err := parseHost(ctx)
+	h, err := parseHost(ctx)
 	if err != nil {
 		return err
 	}
-	return DeleteHost(host.Name)
+	return host.DeleteHost(app.db, h.Name)
 }
 
 // Parse host from given cli.Context.
 func parseHost(ctx *cli.Context) (*types.Host, error) {
 	host := &types.Host{
-		Name:     ctx.String("name"),
-		User:     ctx.String("user"),
-		Address:  ctx.String("address"),
-		Port:     ctx.Int("port"),
-		Password: ctx.String("password"),
-		KeyPath:  ctx.String("keypath"),
+		Name:        ctx.String("name"),
+		User:        ctx.String("user"),
+		Address:     ctx.String("address"),
+		Port:        ctx.Int("port"),
+		Password:    ctx.String("password"),
+		KeyPath:     ctx.String("keypath"),
+		Description: ctx.String("description"),
 	}
-
 	return host, nil
 }
 
-// getDatastore returns a new datastore
-func getDatastore() (*datastore.Datastore, error) {
-	path, err := utils.GetDatastorePath()
-	if err != nil {
-		return nil, err
-	}
-	return datastore.NewDatastore(path, nil)
-}
-
-// getHostKey returns a key given host with prefix("host.")
-func getHostKey(hostname string) []byte {
-	return []byte(types.HostPrefix + hostname)
-}
-
+// displayHost show all hosts to console.
 func displayHost(hosts ...*types.Host) {
+	if hosts == nil || len(hosts) == 0 {
+		log.Printf("> empty hosts in local store")
+		return
+	}
+
 	for i, h := range hosts {
 		s, err := json.Marshal(h)
 		if err != nil {
