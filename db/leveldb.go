@@ -6,6 +6,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/iterator"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/util"
+	"log"
 )
 
 type Database struct {
@@ -31,6 +32,7 @@ func NewDatabase(path string, o *opt.Options) (*Database, error) {
 			return nil, err
 		}
 	}
+	log.Println("Open local database: ", path)
 
 	return &Database{
 		db:   db,

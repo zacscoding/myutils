@@ -1,19 +1,16 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
-	"github.com/shiena/ansicolor"
 	"github.com/urfave/cli"
 	"github.com/zacscoding/myutils/host"
-	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/terminal"
-	"io/ioutil"
+	"github.com/zacscoding/myutils/remote"
+	"github.com/zacscoding/myutils/types"
 	"log"
-	"os"
-	"os/signal"
-	"strconv"
+	"strings"
+	"sync"
 )
 
 var (
@@ -29,173 +26,89 @@ var (
 				Action:    openRemoteShell,
 				ArgsUsage: "[host name]",
 			},
+			{
+				Name:      "command",
+				Usage:     "execute given comment to a host",
+				Action:    executeCommands,
+				ArgsUsage: "[comma separated list of host name]",
+			},
 		},
 	}
 )
 
+// openRemoteShell start to open remote shell given cli context
 func openRemoteShell(ctx *cli.Context) error {
 	if ctx.NArg() != 1 {
 		return errors.New("invalid arguments")
 	}
-	conn, err := createSSHClient(ctx.Args()[0])
+
+	h, err := host.GetHost(app.db, ctx.Args()[0])
+	if err != nil {
+		return err
+	}
+
+	conn, err := remote.CreateSSHClient(h)
 	if err != nil {
 		log.Fatal(err)
 		return err
 	}
 	defer conn.Close()
 
-	session, err := conn.NewSession()
-	if err != nil {
-		return err
-	}
-	defer session.Close()
-
-	session.Stdin = os.Stdin
-	session.Stdout = ansicolor.NewAnsiColorWriter(os.Stdout)
-	session.Stderr = ansicolor.NewAnsiColorWriter(os.Stderr)
-
-	// copy from http://talks.rodaine.com/gosf-ssh/present.slide#9
-	modes := ssh.TerminalModes{
-		ssh.ECHO:          1,      // please print what I type
-		ssh.ECHOCTL:       0,      // please don't print control chars
-		ssh.TTY_OP_ISPEED: 115200, // baud in
-		ssh.TTY_OP_OSPEED: 115200, // baud out
-	}
-
-	termFD := int(os.Stdin.Fd())
-
-	width, height, err := terminal.GetSize(termFD)
-	if err != nil {
-		return err
-	}
-
-	termState, _ := terminal.MakeRaw(termFD)
-	defer terminal.Restore(termFD, termState)
-
-	err = session.RequestPty("xterm-256color", height, width, modes)
-	if err != nil {
-		return err
-	}
-	err = session.Shell()
-	if err != nil {
-		return err
-	}
-	err = session.Wait()
-	if err != nil {
-		return err
-	}
-	return nil
+	return remote.OpenRemoteShell(conn)
 }
 
-// createSSHClient create a ssh client given ssh server info.
-func createSSHClient(hostName string) (*ssh.Client, error) {
-	h, err := host.GetHost(app.db, hostName)
-	if err != nil {
-		return nil, err
-	}
-
-	var auth ssh.AuthMethod
-	if h.Password != "" {
-		auth = ssh.Password(h.Password)
-	} else {
-		pemBytes, err := ioutil.ReadFile(h.KeyPath)
-		if err != nil {
-			return nil, err
-		}
-		key, err := ssh.ParsePrivateKey(pemBytes)
-		auth = ssh.PublicKeys(key)
-	}
-
-	config := &ssh.ClientConfig{
-		User: h.User,
-		Auth: []ssh.AuthMethod{
-			auth,
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-
-	addr := h.Address + ":" + strconv.Itoa(h.Port)
-	return ssh.Dial("tcp", addr, config)
-}
-
-// connectRemote connect to remote server with console.
-func connectRemote(ctx *cli.Context) error {
-	if ctx.NArg() != 1 {
+// executeCommands execute given command to hosts
+func executeCommands(ctx *cli.Context) error {
+	if ctx.NArg() != 2 {
 		return errors.New("invalid arguments")
 	}
 
-	hostName := ctx.Args()[0]
-	h, err := host.GetHost(app.db, hostName)
-	if err != nil {
-		return err
-	}
+	hostNames := strings.Split(ctx.Args()[0], ",")
+	command := ctx.Args()[1]
 
-	var auth ssh.AuthMethod
-	if h.Password != "" {
-		auth = ssh.Password(h.Password)
-	} else {
-		pemBytes, err := ioutil.ReadFile(h.KeyPath)
+	var hosts []*types.Host
+	for _, hostName := range hostNames {
+		h, err := host.GetHost(app.db, hostName)
 		if err != nil {
-			return err
+			fmt.Println("failed to find a host. name :", hostName)
+			continue
 		}
-		key, err := ssh.ParsePrivateKey(pemBytes)
-		auth = ssh.PublicKeys(key)
+		hosts = append(hosts, h)
 	}
 
-	config := &ssh.ClientConfig{
-		User: h.User,
-		Auth: []ssh.AuthMethod{
-			auth,
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	commandGen := func(h *types.Host) string {
+		return command
 	}
 
-	addr := h.Address + ":" + strconv.Itoa(h.Port)
-	conn, err := ssh.Dial("tcp", addr, config)
-	if err != nil {
-		log.Fatal(err)
-		return err
-	}
-	defer conn.Close()
+	mux := &sync.Mutex{}
+	var successes, failures []string
 
-	session, err := conn.NewSession()
-	if err != nil {
-		return err
-	}
-	defer session.Close()
-
-	session.Stdout = ansicolor.NewAnsiColorWriter(os.Stdout)
-	session.Stderr = ansicolor.NewAnsiColorWriter(os.Stderr)
-	in, _ := session.StdinPipe()
-
-	modes := ssh.TerminalModes{
-		ssh.ECHO:  0, // Disable echoing
-		ssh.IGNCR: 1, // Ignore CR on input.
-	}
-
-	if err := session.RequestPty("vt100", 80, 40, modes); err != nil {
-		log.Fatalf("request for pseudo terminal failed: %s", err)
-	}
-
-	// Start remote shell
-	if err := session.Shell(); err != nil {
-		log.Fatalf("failed to start shell: %s", err)
-	}
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	go func() {
-		for {
-			<-c
-			os.Exit(0)
+	resultHandler := func(result remote.HostCmdResult) {
+		var res string
+		if result.Err != nil {
+			mux.Lock()
+			failures = append(failures, result.Host.Name)
+			mux.Unlock()
+			res = "fail"
+		} else {
+			mux.Lock()
+			successes = append(successes, result.Host.Name)
+			mux.Unlock()
+			res = "success"
 		}
-	}()
-
-	// accepting commands
-	for {
-		reader := bufio.NewReader(os.Stdin)
-		str, _ := reader.ReadString('\n')
-		_, _ = fmt.Fprint(in, str)
+		var out bytes.Buffer
+		out.WriteString("// ------------------------------------------------\n")
+		out.WriteString(fmt.Sprintf("host : %s, result : %s, command : %s\n", result.Host.Name, res, result.Command))
+		if result.Err != nil {
+			out.WriteString(fmt.Sprintf("> error :%v\n", result.Err))
+		} else {
+			out.WriteString(fmt.Sprintf("> standard output:\n%s\n", result.Result.StdOut))
+			out.WriteString(fmt.Sprintf("> standard error:\n%s\n", result.Result.StdErr))
+		}
+		out.WriteString("--------------------------------------------------- //")
+		fmt.Println(out.String())
 	}
+	remote.ExecutesCommand(hosts, commandGen, resultHandler)
+	fmt.Printf(">> Success : %v, Fail : %v\n", successes, failures)
 	return nil
 }

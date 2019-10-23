@@ -3,7 +3,7 @@ package utils
 
 import (
 	"github.com/urfave/cli"
-	"os"
+	"os/user"
 	"path/filepath"
 )
 
@@ -37,6 +37,10 @@ var (
 		Name:  "keypath",
 		Usage: "host key file path for ssh.",
 	}
+	HostDescriptionFLag = cli.StringFlag{
+		Name:  "description, d",
+		Usage: "description of host.",
+	}
 )
 
 func NewApp() *cli.App {
@@ -48,13 +52,20 @@ func NewApp() *cli.App {
 	return app
 }
 
-// GetDatabasePath returns a db directory.
+// GetDatabasePath returns a db directory i.e workspace/myutilsdb
 func GetDatabasePath() (string, error) {
-	//dir, err := os.Getwd()
-	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	workspace, err := GetWorkspace()
 	if err != nil {
 		return "", err
 	}
-	//fmt.Println("## database open.. ", (dir + "/myutilsdb"))
-	return dir + "/myutilsdb", nil
+	return filepath.Join(workspace, "myutilsdb"), nil
+}
+
+// GetWorkspace returns myutils workspace i.e ~/myutils
+func GetWorkspace() (string, error) {
+	cu, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(cu.HomeDir, "myutils"), nil
 }

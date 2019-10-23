@@ -30,6 +30,7 @@ func init() {
 	app.cliApp.Commands = []cli.Command{
 		hostCommand,
 		sshCommand,
+		scpCommand,
 	}
 }
 

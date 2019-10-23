@@ -1,4 +1,16 @@
 # My utils commands
+this project is my command utils for dev :)  
+
+## Commands  
+
+- <a href="#host_command">host command</a>  
+; host command is manage hosts such as save,update,get,remove.  
+- <a href="#ssh_command">ssh command</a>  
+; ssh command is utils for remote vm.
+
+---  
+
+<div id="host_command"></div>  
 
 > ## Manage hosts command
 
@@ -23,7 +35,13 @@ OPTIONS:
    --help, -h  show help
 ```
 
-> ## SSH  
+> ## Example of hosts command  
+
+---  
+
+<div id="ssh_command"></div>
+
+> ## SSH command  
 
 ```bash
 $ myutils host add

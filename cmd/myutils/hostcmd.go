@@ -22,6 +22,7 @@ var (
 		utils.HostPortFlag,
 		utils.HostPasswordFlag,
 		utils.HostPemPathFlag,
+		utils.HostDescriptionFLag,
 	}
 
 	hostCommand = cli.Command{
