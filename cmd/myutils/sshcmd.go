@@ -28,7 +28,7 @@ var (
 			},
 			{
 				Name:      "command",
-				Usage:     "execute given comment to a host",
+				Usage:     "execute given command to a host",
 				Action:    executeCommands,
 				ArgsUsage: "[comma separated list of host name]",
 			},
@@ -39,13 +39,15 @@ var (
 // openRemoteShell start to open remote shell given cli context
 func openRemoteShell(ctx *cli.Context) error {
 	if ctx.NArg() != 1 {
-		return errors.New("invalid arguments")
+		return errors.New(fmt.Sprintf("invalid arguments : %v", ctx.Args()))
 	}
 
 	h, err := host.GetHost(app.db, ctx.Args()[0])
 	if err != nil {
 		return err
 	}
+	// close database
+	app.db.Close()
 
 	conn, err := remote.CreateSSHClient(h)
 	if err != nil {

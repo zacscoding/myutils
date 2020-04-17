@@ -48,7 +48,7 @@ func NewApp() *cli.App {
 	app.Name = "myutils"
 	app.Usage = "Usage.."
 	app.Author = "zaccoding"
-	app.Version = "0.0.1"
+	app.Version = "0.0.2"
 	return app
 }
 
